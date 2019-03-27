@@ -1,0 +1,72 @@
+#dateStrFmt  "yyyy-mm-ddTHH:MM:SS.FFFFFF"
+
+product     root
+
+adsHeader   node
+    missionId   str
+    productType     str
+    polarisation    str
+    mode    str
+    swath   str
+    startTime   dateStr
+    stopTime    dateStr
+#endNode
+
+generalAnnotation   node
+    projection  str
+    rangeSamplingRate   dbl
+    radarFrequency  dbl
+    azimuthSteeringRate     dbl
+    prf     dbl
+    orbit   list
+        time    dateStr
+        position    dblArr
+        velocity    dblArr
+    #endList
+    azimuthFmRate   list
+        azimuthTime     dateStr
+        t0  dbl
+        azimuthFmRatePolynomial     dblArr
+    #endList
+#endNode
+
+imageAnnotation     node
+    slantRangeTime  dbl
+    pixelValue  str
+    outputPixels    str
+    rangePixelSpacing   dbl
+    azimuthPixelSpacing     dbl
+    azimuthTimeInterval     dbl
+    numberOfSamples     dbl
+    numberOfLines   dbl
+    zeroDopMinusAcqTime     dbl
+    incidenceAngleMidSwath  dbl
+    rangeProcessing     node
+        windowType  str
+        windowCoefficient   dbl
+        lookBandwidth   dbl
+    #endNode
+    azimuthProcessing     node
+        windowType  str
+        windowCoefficient   dbl
+        lookBandwidth   dbl
+    #endNode
+#endNode
+
+dcEstimate  list
+    azimuthTime     dateStr
+    t0  dbl
+    dataDcPolynomial     dblArr
+#endList
+
+swathTiming     node
+    linesPerBurst   dbl
+    samplesPerBurst     dbl
+    burst   list
+        azimuthTime     dateStr
+        byteOffset  dbl
+        firstValidSample    dblArr
+        lastValidSample     dblArr
+    #endList
+#endNode
+
