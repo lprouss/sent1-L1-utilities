@@ -85,12 +85,35 @@ for cnt = 1:numPol
 end
 
 %% number of data channels
-numChan = length( pol ) * length( swathID );
+if ~strcmpi( acqMode, 'WV' )
+    % IW, EW or SM mode
+    numChan = length( pol ) * length( swathID );
+else
+    % WV mode: number of vignettes
+    FPnode = meta.getElementsByTagName('gml:coordinates'); % vignettes coords
+    numChan = FPnode.getLength;
+end
 
 %% get acquisition start and stop times
 dateStrFmt = 'yyyy-mm-ddTHH:MM:SS.FFFFFF';
 acqT0 = getXMLnode( 'safe:startTime', meta, 'dateStr', dateStrFmt );
 acqTE = getXMLnode( 'safe:stopTime', meta, 'dateStr', dateStrFmt );
+
+% geographic coordinates of swath
+if ~strcmpi( acqMode, 'WV' )
+    % IW, EW or SM mode
+    FPnode = meta.getElementsByTagName('gml:coordinates');
+    swathCoords = str2num( FPnode.item(0).getTextContent );
+    swathCoords = reshape( swathCoords, 2, [] ).';
+else
+    % WV mode
+    swathCoords = cell( 1, numChan );
+    for nc = 1:numChan
+        swathCoords{nc} = str2num( FPnode.item(nc-1).getTextContent );
+        swathCoords{nc} = reshape( swathCoords{nc}, 2, [] ).';
+    end
+end
+clear FPnode;
 
 %% read dataObject section
 data = xroot.getElementsByTagName('dataObjectSection').item(0);
@@ -143,8 +166,9 @@ maniHead.prodType = prodType; % product type
 maniHead.acqMode = acqMode; % acquisition mode
 maniHead.swathID = swathID; % subswaths IDs
 maniHead.polarization = pol; % polarizations
-maniHead.acqStartTime = acqT0;
-maniHead.acqStopTime = acqTE;
+maniHead.acqStartTime = acqT0; % acquisition start time
+maniHead.acqStopTime = acqTE; % acquisition stop time
+maniHead.swathCoords = swathCoords; % geographic coordinates of swath's corners
 maniHead.dataFile = dataFile; % data files names
 maniHead.prodAnn = prodAnn; % product annotation files names
 maniHead.calAnn = calAnn; % calibration annotation files names
