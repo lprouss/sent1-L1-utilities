@@ -2,21 +2,24 @@ function maniHead = parseSafeManifest( dsetPath )
 % Extract information from the SAFE manifest file of a Sentinel-1 dataset.
 %
 % Inputs:
-%   - dsetPath: path to the Sentinel-1 dataset directory
+%   - dsetPath: path to the Sentinel-1 dataset directory.
 %
 % Outputs:
-%   - maniHead: structure containing the extracted information
+%   - maniHead: structure containing the extracted information.
 %
-% Required functions (not part of MATLAB):
+% Required functions (toolboxes and/or user-defined):
 %   - getXMLnode (see https://github.com/lprouss/xmlExtract)
 %
 % Additional information:
 %   Although the SAFE format may be used for many ESA platforms, this function
 %   only supports Level 1 Sentinel-1 products (SLC and GRD).
 %
+%   The data and annotation files in the output structure are sorted by swath,
+%   polarization and vignette number (WV mode only), in that order.
+%
 % Author: Louis-Philippe Rousseau (Université Laval)
 % Created: May 2014
-% Updated: October 2017
+% Updated: October 2017, November 2019 (sort files)
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %% try to read the input manifest file (XML tree)
@@ -156,6 +159,28 @@ for cnt = 1:data.getLength
         end
     end
 end
+numV = numChan / numSwath / numPol; % number of vignettes
+
+%% sort data and annotation files
+dataFileS = cell( numSwath, numPol, numV );
+prodAnnS = cell( numSwath, numPol, numV );
+calAnnS = cell( numSwath, numPol, numV );
+noiseAnnS = cell( numSwath, numPol, numV );
+for ns = 1:numSwath
+    sflag = contains( dataFile, swathID{ns}, 'IgnoreCase', true );
+    assert( sum( sflag ) == numPol * numV, ...
+        'Missing data file(s) for swath %s.', swathID{ns} );
+    for np = 1:numPol
+        pflag = contains( dataFile, pol{np}, 'IgnoreCase', true );
+        assert( sum( pflag ) == numSwath * numV, ...
+            'Missing data file(s) for polarization %s.', pol{np} );
+        dataFileS(ns,np,:) = dataFile(sflag & pflag);
+        prodAnnS(ns,np,:) = prodAnn(sflag & pflag);
+        calAnnS(ns,np,:) = calAnn(sflag & pflag);
+        noiseAnnS(ns,np,:) = noiseAnn(sflag & pflag);
+    end
+end
+clear dataFile prodAnn calAnn noiseAnn;
 
 
 %% construct the manifest header structure
@@ -164,13 +189,19 @@ maniHead.platform = platform; % satellite platform
 maniHead.pass = pass; % orbit pass
 maniHead.prodType = prodType; % product type
 maniHead.acqMode = acqMode; % acquisition mode
+maniHead.Nswath = numSwath; % number of subswaths
 maniHead.swathID = swathID; % subswaths IDs
-maniHead.polarization = pol; % polarizations
+maniHead.Npol = numPol; % number of polarization channels
+maniHead.polarization = pol; % polarization channels
+if strcmpi( acqMode, 'WV' )
+    % WV mode: number of vignettes
+    maniHead.Nvignette = numV;
+end
 maniHead.acqStartTime = acqT0; % acquisition start time
 maniHead.acqStopTime = acqTE; % acquisition stop time
 maniHead.swathCoords = swathCoords; % geographic coordinates of swath's corners
-maniHead.dataFile = dataFile; % data files names
-maniHead.prodAnn = prodAnn; % product annotation files names
-maniHead.calAnn = calAnn; % calibration annotation files names
-maniHead.noiseAnn = noiseAnn; % noise annotation files names
+maniHead.dataFile = dataFileS; % data files names
+maniHead.prodAnn = prodAnnS; % product annotation files names
+maniHead.calAnn = calAnnS; % calibration annotation files names
+maniHead.noiseAnn = noiseAnnS; % noise annotation files names
 
