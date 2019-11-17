@@ -200,8 +200,10 @@ clear offsetRows offsetStrips;
 
 % create the info structure
 tiffInfo.endian = byteOrder;
-tiffInfo.numPixels = single( numPixels );
-tiffInfo.numLines = single( numLines );
+%tiffInfo.numPixels = single( numPixels );
+%tiffInfo.numLines = single( numLines );
+tiffInfo.numPixels = numPixels;
+tiffInfo.numLines = numLines;
 tiffInfo.dataType = dataType;
 tiffInfo.complexFlag = cplxFlag;
 tiffInfo.bytesPerSample = numBytesSamp;
