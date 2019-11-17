@@ -13,23 +13,22 @@ function data = readSent1Data( dataFile, varargin )
 %       [Nrg, Naz] where 'Nrg' and 'Naz' are the number of range samples and
 %       azimuth lines read in the file, respectively.
 %
-% Required functions (not part of MATLAB):
+% Required functions (toolboxes and/or user-defined):
 %   - getTIFFinfo
 %
 % Additional information:
 %   The ROI to read in data is defined using the following parameters in the
 %   input 'roi' structure:
-%   - roi.firstSample: index of the first range sample in the desired ROI
-%       (starts at 1);
-%   - roi.numSample: number of range samples in the desired ROI.
-%   - roi.firstLine: index of the first azimuth line in the desired ROI
-%       (starts at 1);
-%   - roi.numLine: number of azimuth lines in the desired ROI;
-%   When 'roi' is omitted, the entire image is read from the data file.
+%   - 'ridx': indexes of range samples to read.
+%   - 'aidx': indexes of azimuth lines to read.
+%   Indexes should start at 1. Default value is 0 for all parameters, i.e. all
+%   data is read in that dimension. When 'roi' is omitted, the entire data file
+%   is read.
 %
 % Author: Louis-Philippe Rousseau (Université Laval)
 % Created: May 2014
-% Updated: November 2017
+% Updated: November 2017, November 2019 (simplified ROI structure, other minor
+%   improvements)
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%% ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ %%%
@@ -67,54 +66,31 @@ end
 Nrg = fileInfo.numPixels;
 Naz = fileInfo.numLines;
 
-% field names and defaults for the read options structure
-roiFields = {'firstLine', 1;
-             'numLine', Naz;
-             'firstSample', 1;
-             'numSample', Nrg};
-
-% make sure all fields are present in the options structure
-fieldFlag = isfield( roi, roiFields(:,1) ); % flag provided fields
-missingFields = roiFields(~fieldFlag,:); % list of missing fields
-for cnt = 1:size( missingFields, 1 )
-    % assing default values to missing fields
-    roi.(missingFields{cnt,1}) = missingFields{cnt,2};
+% indexes of range samples and azimuth lines to read for ROI
+if isfield( roi, 'ridx' )
+    ridx = unique( roi.ridx(:) );
+    validateattributes( ridx, {'numeric'}, {'integer', 'nonnegative', ...
+        '<=', Nrg}, '', 'roi.ridx' );
+    if any( ridx ) == 0
+        ridx = ( 1:Nrg );
+    end
+else
+    % read all range samples in each swath
+    ridx = ( 1:Nrg );
 end
-clear fieldFlag missingFields roiFields;
-
-% validate or set azimuth lines window
-if roi.firstLine <= 0 || roi.firstLine > Naz
-    % invalid first line index, return warning and use default (1)
-    warning( ['The provided index for the first azimuth line in the ROI is ' ...
-        'invalid: %d. Using default (first sample).'], roi.firstLine );
-    roi.firstLine = 1;
+if isfield( roi, 'aidx' )
+    aidx = unique( roi.aidx(:) ).';
+    validateattributes( aidx, {'numeric'}, {'integer', 'nonnegative', ...
+        '<=', Naz}, '', 'roi.aidx' );
+    if any( aidx ) == 0
+        aidx = ( 1:Naz );
+    end
+else
+    % read all azimuth lines in each swath
+    aidx = ( 1:Naz );
 end
-if roi.numLine < 1 || roi.firstLine - 1 + roi.numLine > Naz
-    % invalid number of lines, return warning and use default
-    NazRoi = Naz - roi.firstLine + 1; % number of lines to use
-    warning( ['The provided number of azimuth lines in the ROI is invalid: ' ...
-        '%d. Using %d lines: %d (total number of azimuth lines) - %d (first ' ...
-        'line index) + 1.'], roi.numLine, NazRoi, Naz, roi.firstLine );
-    roi.numLine = NazRoi; clear NazRoi;
-end
-
-% validate or set range samples window
-if roi.firstSample <= 0 || roi.firstSample > Nrg
-    % invalid first sample index, return warning and use default (1)
-    warning( ['The provided index for the first range sample in the ROI is ' ...
-        'invalid: %d. Using default (first sample).'], roi.firstSample );
-    roi.firstSample = 1;
-end
-if roi.numSample < 1 || roi.firstSample - 1 + roi.numSample > Nrg
-    % invalid number of samples, return warning and use default
-    NrgRoi = Nrg - roi.firstSample + 1; % number of samples to use
-    warning( ['The provided number of range samples in the ROI is invalid: ' ...
-        '%d. Using %d samples: %d (total number of range samples) - %d ' ...
-        '(first sample index) + 1.'], roi.numSample, NrgRoi, Nrg, ...
-        roi.firstSample );
-    roi.numSample = NrgRoi; clear NrgRoi;
-end
-clear Nrg Naz;
+NrgRoi = numel( ridx );
+NazRoi = numel( aidx );
 
 
 %%% ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ %%%
@@ -126,20 +102,23 @@ if verbose
 end
 
 % calculate bytes offsets for the ROI
-roiLines = roi.firstLine + (0:roi.numLine-1); % list of lines in the ROI
-roiBytesOffset = fileInfo.linesBytesOffset(roiLines) + ...
-    (roi.firstSample - 1) * fileInfo.bytesPerSample * (1 + ...
-    fileInfo.complexFlag);
-clear roiLines;
+roiBytesOffset = fileInfo.linesBytesOffset(aidx) + ( ridx(1) - 1 ) * ...
+    fileInfo.bytesPerSample * ( 1 + fileInfo.complexFlag );
 
 % dimensions of the data array to read
-dataDim = [roi.numSample * (1 + fileInfo.complexFlag), roi.numLine];
+dataDim = [NrgRoi * ( 1 + fileInfo.complexFlag ), NazRoi];
 
 % calculate number of bytes to skip after reading each line
-NbytesLine = roi.numSample * (1 + fileInfo.complexFlag) * ...
+NbytesLine = NrgRoi * ( 1 + fileInfo.complexFlag ) * ...
     fileInfo.bytesPerSample; % number of bytes per line
-NbytesSkip = roiBytesOffset(2:end) - (roiBytesOffset(1:end-1) + NbytesLine);
+NbytesSkip = roiBytesOffset(2:end) - ( roiBytesOffset(1:end-1) + NbytesLine );
 clear NbytesLine;
+
+% data type (save as single)
+dtype = fileInfo.dataType;
+if ~strcmpi( fileInfo.dataType, 'single' )
+    dtype = [dtype, '=>single'];
+end
 
 % read data in file
 if numel( unique( NbytesSkip ) ) == 1
@@ -164,15 +143,12 @@ if numel( unique( NbytesSkip ) ) == 1
     % add the number of samples to read to the data type string if necessary
     if NbytesSkip > 0
         % number of bytes to skip is not zero, modify string
-        dtype = sprintf( '%d*%s', roi.numSample * (1 + ...
-            fileInfo.complexFlag), fileInfo.dataType );
-    else
-        % number of bytes to skip is zeroo, do not change the string
-        dtype = fileInfo.dataType;
+        dtype = sprintf( '%d*%s=>single', NrgRoi * ( 1 + ...
+            fileInfo.complexFlag ), fileInfo.dataType );
     end
 
     % read all samples in the ROI simultaneously and convert to single data type
-    data = single( fread( fid, dataDim, dtype, NbytesSkip ) );
+    data = fread( fid, dataDim, dtype, NbytesSkip );
     clear dtype;
 else
     % number of bytes to skip after each line is not constant
@@ -181,13 +157,13 @@ else
     end
 
     % initialize an array for the ROI data
-    data = zeros( dataDim, fileInfo.dataType );
+    data = zeros( dataDim, 'single' );
 
     % read data for the ROI line-by-line
-    for nl = 1:roi.numLine
+    for nl = 1:NazRoi
         % display progress information, if requested
         if verbose
-            perc = round( (nl - 1) / roi.numLine * 100 );
+            perc = round( ( nl - 1 ) / NazRoi * 100 );
             fprintf( '  %d%% complete\r', perc );
             clear perc;
         end
@@ -203,12 +179,9 @@ else
         end
 
         % read current line in the file
-        data(:,nl) = fread( fid, roi.numSample * (1 + fileInfo.complexFlag), ...
-            fileInfo.dataType );
+        data(:,nl) = fread( fid, NrgRoi * ( 1 + fileInfo.complexFlag ), ...
+            dtype );
     end
-
-    % convert data array to single data type
-    data = single( data );
     if verbose
         fprintf( '\n' );
     end
@@ -220,7 +193,8 @@ fclose( fid );
 
 % if necessary, convert samples to complex data
 if fileInfo.complexFlag
-    data = data(1:2:end,:) + 1j * data(2:2:end,:);
+    %data = data(1:2:end,:) + 1j * data(2:2:end,:);
+    data = complex( data(1:2:end,:), data(2:2:end,:) );
 end
 clear fileInfo;
 
