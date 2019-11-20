@@ -1,13 +1,11 @@
-function imgCal = applySent1Lut( img, azTime, calAnnFile, lut, varargin )
-% Apply a look-up table (LUT) to radiometrically calibrate a Sentinel-1 image.
+function imgCal = applySent1Lut( img, calAnnFile, lut, varargin )
+% Apply a look-up table (LUT) to radiometrically calibrate a Sentinel-1 Level 1
+% image.
 %
 % Inputs:
-%   - img: Sentinel-1 image for one subswath (TOPS mode), with dimensions
-%       [Nrg Naz] or [Nrg Naz Nb], where 'Nrg' and 'Naz' are respectively the
-%       number of range and azimuth samples, and 'Nb' is the number of bursts
-%       (TOPS image before bursts merging).
-%   - azTime: structure containing azimuth timing information for the image,
-%       see Additional information.
+%   - img: Sentinel-1 Level 1 image with size [Nrg Naz], where 'Nrg' is the
+%       number of range samples (pixels) and 'Naz' is the number of azimuth
+%       lines.
 %   - calAnnFile: calibration annotation file (XML) for the input Sentinel-1
 %       image, with full path.
 %   - lut: name of the desired LUT (case-sensitive), see Additional information.
@@ -22,20 +20,18 @@ function imgCal = applySent1Lut( img, azTime, calAnnFile, lut, varargin )
 % Outputs:
 %   - imgCal: calibrated Sentinel-1 with the desired LUT.
 %
-% Required functions (not part of MATLAB):
+% Required functions (toolboxes and/or user-defined):
 %   - xmlExtract (see https://github.com/lprouss/xmlExtract)
 %
 % Additional information:
-%   The 'azTime' structure should contain the following parameters:
-%   - 'T0': six-elements time vector for the first azimuth line in the image;
-%   - 'trel': vector of azimuth time relative to 'T0', for each line in the
-%       image. For a TOPS image before bursts merging, there should be one
-%       vector per burst and 'trel' should have dimensions [Nb, Naz] ('Naz'
-%       is the number of lines in each burst).
+%   This function uses the azimuth line and range sample (pixel) indexes in the
+%   calibration annotation file to generate the LUT for the image. Therefore,
+%   it only works if the complete image found in a measurement data file is
+%   provided as input. The size of the input image is not validated.
 %
 %   For Sentinel-1, four calibration LUTs are available:
-%   - 'dn': (original) digital number for image pixels, without the
-%       application-specific LUT applied during SAR processing;
+%   - 'dn': digital number for image pixels, without the application-specific
+%       LUT applied during SAR processing;
 %   - 'betaNought': backscattering coefficient in slant range geometry, also
 %       known as radar brightness;
 %   - 'sigmaNought': backscattering coefficient in ground range geometry;
@@ -46,70 +42,42 @@ function imgCal = applySent1Lut( img, azTime, calAnnFile, lut, varargin )
 %
 % Author: Louis-Philippe Rousseau (Université Laval)
 % Created: November 2017
-% Updated: January 2018
+% Updated: January 2018, November 2019 (new version of the function based on
+%   image pixel indexes)
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-% TODO: support recovering the application-specific LUT, i.e. remove a
-%   calibration LUT?
-% TODO: support a header structure as input instead of an image (apply LUT to
-%   each image in header)?
+% TODO: add support for image subsets (regions of interest) by optionally
+%   providing line/pixel offsets in azimuth and range as input?
 
 %%% ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ %%%
 %%% initialization
 
 % validate number of inputs
-narginchk( 4, 6 );
+narginchk( 3, 5 );
 
-% dimensions of input image array
-dataDim = size( img );
-Nrg = dataDim(1);
-Naz = dataDim(2);
+% default values for optional inputs
+imgLut = 'original'; % image has original LUT
+verbose = false; % no verbose
 
-% number of bursts in the image
-if length( dataDim ) == 3
-    % TOPS image before bursts merging
-    Nb = dataDim(3);
-else
-    % Stripmap SAR image or merged TOPS image
-    Nb = 1;
-end
-clear dataDim;
-
-% make sure the azimuth timing structure contains the required parameters
-validTst = isstruct( azTime ) && all( isfield( azTime, {'T0', 'trel'} ) );
-assert( validTst, ['The second input, azimuth timing information, is either ' ...
-    'not a structure or does not contain the required parameters ("T0" and ' ...
-    '"trel").'] );
-T0 = azTime.T0(:).';
-trel = azTime.trel;
-clear azTime;
-
-% validate the provided azimuth time information
-validateattributes( T0, {'numeric'}, {'numel', 6, 'nonnegative'}, '', 'T0' );
-validateattributes( trel, {'numeric'}, {'size', [Nb, Naz]}, '', 'trel' );
+% size of input image array
+validateattributes( img, {'numeric'}, {'2d'}, '', 'img', 1 );
+[Nrg, Naz] = size( img );
 
 % make sure the calibration annotation file exists
-assert( exist( calAnnFile, 'file' ) > 0, ['Calibration annotation file ' ...
+assert( exist( calAnnFile, 'file' ) == 2, ['Calibration annotation file ' ...
     'provided as input does not exist: %s.'], calAnnFile );
 
 % make sure the desired LUT is valid
 validLUT = {'sigmaNought', 'betaNought', 'gamma', 'dn'};
 lut = validatestring( lut, validLUT, '', 'lut', 3 );
-clear validLUT;
 
-% assign variable to the provided optional input(s)
-imgLut = 'original'; % input image has original LUT
-verbose = false; % no verbose
-for ni = 1:nargin-4
-    % assign current optional input to correct variable using its type
+% process provided optional inputs, if any
+for ni = 1:length( varargin )
+    % assign input to correct variable using its data type
     if ischar( varargin{ni} )
-        % string: LUT of the input image
-        imgLut = varargin{ni};
-
-        % make sure the image LUT is valid
-        validLUT = {'sigmaNought', 'betaNought', 'gamma', 'dn', 'original'};
-        imgLut = validatestring( imgLut, validLUT, '', 'imgLut', ni+4 );
-        clear validLUT;
+        % string: image LUT
+        validLUT = [validLUT, {'original'}];
+        imgLut = validatestring( varargin{ni}, validLUT, '', 'imgLut', ni + 3 );
     elseif islogical( varargin{ni} )
         % logical: verbose flag
         verbose = varargin{ni};
@@ -120,19 +88,25 @@ for ni = 1:nargin-4
     end
 end
 
+% return to caller is the requested LUT is already applied to the image
+if strcmpi( lut, imgLut )
+    fprintf( ['The requested LUT is already applied to the input image: ' ...
+        'nothing to do.\n'] );
+    return;
+end
+
 
 %%% ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ %%%
 %%% parse calibration annotation file and validate extracted information
 
 % display progress information, if requested
 if verbose
-    fprintf( ['Extracting calibration information from the annotation file and ' ...
-        'interpolating to image''s dimensions... '] );
+    fprintf( 'Extracting calibration data from the annotation file... ' );
 end
 
 % parsing information structure for the calibration annotation file
-pinfo.tag = {'calibration', 'calibrationVector', 'azimuthTime', 'pixel', lut};
-pinfo.type = {'root', 'list', 'dateStr', 'dblArr', 'dblArr'};
+pinfo.tag = {'calibration', 'calibrationVector', 'line', 'pixel', lut};
+pinfo.type = {'root', 'list', 'dblArr', 'dblArr', 'dblArr'};
 pinfo.level = [0, 1, 2, 2, 2];
 if ~strcmp( imgLut, 'original' )
     % LUT applied to input image: extract it too
@@ -142,12 +116,11 @@ if ~strcmp( imgLut, 'original' )
 end
 pinfo.dateStrFmt = 'yyyy-mm-ddTHH:MM:SS.FFFFFF';
 
-% extract information from calibration annotation file
+% extract calibration data from the annotation file
 pdata = xmlExtract( calAnnFile, pinfo );
 Ncal = length( pdata.calibrationVector ); % number of cal. vectors
-clear pinfo;
 
-% get first vector of calibration range pixels from information structure
+% get first vector of range pixels from calibration data
 calRg = pdata.calibrationVector(1).pixel; % first range pixel vector
 NrgCal = length( calRg ); % number of calibration range pixels
 
@@ -161,18 +134,23 @@ assert( size( calRgAll, 1 ) == 1, ['Calibration range pixels are not ' ...
     'identical for all calibration vectors. This function cannot proceed.'] );
 clear calRgAll;
 
-% make sure extract calibration data matches the image array
+% vector of azimuth lines in calibration data
+calAz = [pdata.calibrationVector.line];
+
+% validate the number of range pixels and azimuth lines in calibration data
 assert( calRg(end) + 1 == Nrg, ['Vector of calibration range pixels is ' ...
-    'inconsistent with the input image array: maximum pixel value is %d ' ...
-    'while there are %d range pixels in the data array.'], calRg(end) + 1, ...
-    Nrg );
+    'inconsistent with the input image: maximum pixel index is %d while ' ...
+    'there are %d range pixels in the image.'], calRg(end) + 1, Nrg );
+assert( calAz(end) + 1 >= Naz, ['Vector of calibration azimuth lines is ' ...
+    'inconsistent with the input image: maximum line index is %d while ' ...
+    'there are %d azimuth lines in the image.'], calAz(end) + 1, Naz );
 
 % construct the desired LUT matrix
 lutArray = [pdata.calibrationVector.(lut)];
 assert( length( lutArray ) / NrgCal == Ncal, ['The number of calibration ' ...
     'values for the desired LUT is not identical for all calibration ' ...
     'vectors. This function cannot proceed.'] );
-lutArray = reshape( lutArray, [NrgCal Ncal] );
+lutArray = reshape( lutArray, NrgCal, [] );
 
 % construct the image LUT matrix, if necesary
 if ~strcmp( imgLut, 'original' )
@@ -180,44 +158,52 @@ if ~strcmp( imgLut, 'original' )
     assert( length( imgLutArray ) / NrgCal == Ncal, ['The number of ' ...
         'calibration values for the image LUT is not identical for all ' ...
         'calibration vectors. This function cannot proceed.'] );
-    imgLutArray = reshape( imgLutArray, [NrgCal Ncal] );
+    imgLutArray = reshape( imgLutArray, NrgCal, [] );
 end
-
-% calculate relative azimuth time for calibration vectors
-calTime = reshape( [pdata.calibrationVector.azimuthTime], [6, Ncal] ).';
-calTimeRel = etime( calTime, T0 );
-clear pdata calTime T0;
+if verbose
+    fprintf( 'Done!\n' );
+end
 
 
 %%% ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ %%%
-%%% interpolate LUT data and apply it to input image
+%%% interpolate LUT data
 
-% create a mesh grid of calibration range pixels and azimuth times
-[calAzGrid, calRgGrid] = meshgrid( calTimeRel, calRg );
-clear calTimeRel calRg;
+% display progress information, if requested
+if verbose
+    fprintf( 'Interpolating LUT array(s) to image... ' );
+end
 
-% create a mesh grid of interpolation range pixels and azimuth times
-[imgAz, imgRg] = meshgrid( reshape( trel.', [1, Naz * Nb] ), (0:Nrg-1) );
-clear trel;
+% create a mesh grid of calibration range pixels and azimuth lines
+[calAzGrid, calRgGrid] = meshgrid( calAz, calRg );
+clear calAz calRg;
+
+% create a mesh grid of interpolation range pixels and azimuth lines
+[imgAz, imgRg] = meshgrid( ( 0:Naz-1 ), ( 0:Nrg-1 ) );
 
 % perform a bilinear interpolation of the desired LUT matrix
 lutArrayInt = interp2( calAzGrid, calRgGrid, lutArray, imgAz, imgRg, ...
     'linear', NaN );
-lutArrayInt = reshape( lutArrayInt, [Nrg, Naz, Nb] );
+lutArrayInt = reshape( lutArrayInt, Nrg, Naz );
 clear lutArray;
 
 % perform a bilinear interpolation of the image LUT matrix, if necessary
 if ~strcmp( imgLut, 'original' )
     imgLutArrayInt = interp2( calAzGrid, calRgGrid, imgLutArray, imgAz, ...
         imgRg, 'linear', NaN );
-    imgLutArrayInt = reshape( imgLutArrayInt, [Nrg, Naz, Nb] );
+    imgLutArrayInt = reshape( imgLutArrayInt, Nrg, Naz );
     clear imgLutArray;
 end
 clear calAzGrid calRgGrid imgAz imgRg;
+if verbose
+    fprintf( 'Done!\n' );
+end
+
+
+%%% ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ %%%
+%%% apply LUT to input image
 
 % display progress information, if requested
 if verbose
-    fprintf( 'Done!\n' );
     fprintf( 'Applying interpolated LUT to input image... ' );
 end
 
@@ -244,8 +230,6 @@ if exist( 'imgPhase', 'var' )
     imgCal = imgCal .* exp( 1j * imgPhase );
     clear imgPhase;
 end
-
-% display progress information, if requested
 if verbose
     fprintf( 'Done!\n' );
 end
