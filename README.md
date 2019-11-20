@@ -10,6 +10,8 @@ These functions were developed primarily to work with single-look complex (SLC) 
 
 __NOTE:__ These functions may not work with MATLAB versions older than R2016b.
 
+The `USAGE` file provides indications on how to use some functions.
+
 + `parseSafeManifest`: Extract useful information from the `manifest.safe` file of a Sentinel-1 dataset. This function should work with any Sentinel-1 Level 1 dataset.
 + `readSent1Data`: Read data in a Sentinel-1 measurement TIFF file. This function should work with any Sentinel-1 Level 1 image.
 + `applySent1Lut`: Apply a calibration LUT to a Sentinel-1 SLC image. This function should be compatible with SLC images in all modes. It has not been tested with GRD images.
