@@ -1,4 +1,4 @@
-function imgCal = applySent1LutPix( img, calAnnFile, lut, varargin )
+function imgCal = applySent1Lut( img, calAnnFile, lut, varargin )
 % Apply a look-up table (LUT) to radiometrically calibrate a Sentinel-1 Level 1
 % image.
 %
